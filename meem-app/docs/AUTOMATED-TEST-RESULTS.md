@@ -63,6 +63,11 @@ Run: `php tests/run.php`
 | Passed | payout request created at/above minimum |
 | Passed | admin marks payout paid and commission becomes paid |
 | Passed | refunded referral: admin rejects commission with a reason |
+| Passed | editor converts a referred lead, then an admin save creates the commission |
+| Passed | converted without amount, adding the amount later creates the commission |
+| Passed | commission inside a payout request cannot be rejected |
+| Passed | paying a payout never marks a rejected commission as paid |
+| Passed | settings with one invalid field save nothing |
 | Passed | calc: 12.5% of 800.00 = 100.00 |
 | Passed | calc: fixed 75 = 7500 cents |
 | Passed | calc: percent above 100 returns null |
@@ -80,4 +85,4 @@ Run: `php tests/run.php`
 | Passed | robots.txt blocks admin and points to the sitemap |
 | Passed | admin login page is noindex |
 
-75 passed, 0 failed.
+80 passed, 0 failed.

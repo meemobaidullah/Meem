@@ -32,5 +32,13 @@ final class DB
     public static function one(string $sql, array $p = []): ?array { $s = self::pdo()->prepare($sql); $s->execute($p); $r = $s->fetch(); return $r ?: null; }
     public static function run(string $sql, array $p = []): int { $s = self::pdo()->prepare($sql); $s->execute($p); return $s->rowCount(); }
     public static function insert(string $sql, array $p = []): int { self::run($sql, $p); return (int) self::pdo()->lastInsertId(); }
+    /** Run $fn inside a transaction; rolls back and rethrows on any exception. */
+    public static function tx(callable $fn): mixed
+    {
+        $pdo = self::pdo();
+        $pdo->beginTransaction();
+        try { $r = $fn(); $pdo->commit(); return $r; }
+        catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
+    }
     public static function now(): string { return gmdate('Y-m-d H:i:s'); }
 }

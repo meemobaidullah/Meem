@@ -24,7 +24,7 @@ final class Http
     public static function method(): string { return strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'); }
     public static function path(): string { $p = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'; return $p === '/' ? '/' : rtrim($p, '/'); }
     public static function ip(): string { return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'; }
-    public static function ipHash(): string { return hash_hmac('sha256', self::ip(), Env::get('APP_KEY', 'change-me')); }
+    public static function ipHash(): string { return hash_hmac('sha256', self::ip(), Env::appKey()); }
     public static function post(string $k, string $d = ''): string { $k = str_replace('.', '_', $k); $v = $_POST[$k] ?? $d; return is_string($v) ? trim($v) : $d; }
     public static function e(?string $s): string { return htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
     public static function csrf(): string

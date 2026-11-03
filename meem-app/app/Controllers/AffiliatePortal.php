@@ -81,8 +81,14 @@ final class AffiliatePortal
         $rows = DB::all("SELECT id, amount_cents FROM commissions WHERE affiliate_id = ? AND status = 'approved' AND payout_id IS NULL", [$a['id']]);
         $tot = array_sum(array_column($rows, 'amount_cents'));
         if ($tot <= 0 || $min <= 0 || $tot < $min) { Http::flash('err', 'Approved commissions have not reached the minimum payout.'); Http::redirect('/affiliate/dashboard'); }
-        $pid = DB::insert('INSERT INTO payouts (affiliate_id, amount_cents, method, status, created_at) VALUES (?,?,?,?,?)', [$a['id'], $tot, Http::post('method') ?: null, 'requested', DB::now()]);
-        foreach ($rows as $r) DB::run('UPDATE commissions SET payout_id = ? WHERE id = ?', [$pid, $r['id']]);
+        try {
+            DB::tx(function () use ($a, $rows, $tot): void {
+                $pid = DB::insert('INSERT INTO payouts (affiliate_id, amount_cents, method, status, created_at) VALUES (?,?,?,?,?)', [$a['id'], $tot, Http::post('method') ?: null, 'requested', DB::now()]);
+                foreach ($rows as $r) {
+                    if (DB::run("UPDATE commissions SET payout_id = ? WHERE id = ? AND payout_id IS NULL AND status = 'approved'", [$pid, $r['id']]) !== 1) throw new \DomainException('stale');
+                }
+            });
+        } catch (\DomainException) { Http::flash('err', 'Your commissions changed while requesting. Reload and try again.'); Http::redirect('/affiliate/dashboard'); }
         Http::flash('ok', 'Payout requested.'); Http::redirect('/affiliate/dashboard');
     }
 }

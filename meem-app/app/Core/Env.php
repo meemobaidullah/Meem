@@ -22,4 +22,13 @@ final class Env
         return $_ENV[$k] ?? getenv($k) ?: (self::$v[$k] ?? $default);
     }
     public static function set(string $k, string $val): void { self::$v[$k] = $val; }
+    /** Secret used for IP hashing and signed form tokens. Refuses to run with a missing or weak key. */
+    public static function appKey(): string
+    {
+        $k = (string) self::get('APP_KEY', '');
+        if (strlen($k) < 32 || $k === 'change-me') {
+            throw new \RuntimeException('APP_KEY is missing or shorter than 32 characters. Set it in .env (see docs/INSTALL-HOSTINGER.md).');
+        }
+        return $k;
+    }
 }

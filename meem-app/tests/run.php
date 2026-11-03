@@ -131,6 +131,31 @@ $adm->post("/admin/leads/{$l2['id']}", ['status' => 'Contacted'], "/admin/leads/
 $c2 = $q("SELECT * FROM commissions WHERE base_cents=50000")->fetch(); $adm->post('/admin/affiliates', ['action' => 'reject_com', 'id' => (string) $c2['id'], 'reason' => 'Client refunded'], '/admin/affiliates');
 t('refunded referral: admin rejects commission with a reason', $c2 && $q('SELECT status FROM commissions WHERE id=?', [$c2['id']])->fetchColumn() === 'rejected' && $q('SELECT reason FROM commissions WHERE id=?', [$c2['id']])->fetchColumn() === 'Client refunded');
 
+// ---- Regression: commission bugs
+$now = gmdate('Y-m-d H:i:s');
+$q("INSERT INTO leads (name,email,status,consent,ref_code,created_at,updated_at) VALUES ('E','e@example.com','New',1,?,?,?)", [$code, $now, $now]);
+$l3 = (int) $q("SELECT id FROM leads WHERE email='e@example.com'")->fetchColumn();
+$ed->post("/admin/leads/$l3", ['status' => 'Converted', 'deal_amount' => '200'], "/admin/leads/$l3");
+$none = !$q('SELECT 1 FROM commissions WHERE base_cents=20000')->fetch();
+$adm->post("/admin/leads/$l3", ['status' => 'Converted'], "/admin/leads/$l3");
+t('editor converts a referred lead, then an admin save creates the commission', $none && $q('SELECT COUNT(*) FROM commissions WHERE base_cents=20000')->fetchColumn() == 1);
+$q("INSERT INTO leads (name,email,status,consent,ref_code,created_at,updated_at) VALUES ('N','n@example.com','New',1,?,?,?)", [$code, $now, $now]);
+$l4 = (int) $q("SELECT id FROM leads WHERE email='n@example.com'")->fetchColumn();
+$adm->post("/admin/leads/$l4", ['status' => 'Converted'], "/admin/leads/$l4");
+$none = !$q('SELECT 1 FROM commissions WHERE base_cents=30000')->fetch();
+$adm->post("/admin/leads/$l4", ['status' => 'Converted', 'deal_amount' => '300'], "/admin/leads/$l4");
+t('converted without amount, adding the amount later creates the commission', $none && $q('SELECT COUNT(*) FROM commissions WHERE base_cents=30000')->fetchColumn() == 1);
+$c4 = (int) $q('SELECT id FROM commissions WHERE base_cents=30000')->fetchColumn();
+$q("INSERT INTO payouts (affiliate_id, amount_cents, status, created_at) VALUES (?,?,?,?)", [$affId, 3000, 'requested', $now]); $p2 = (int) $q('SELECT MAX(id) FROM payouts')->fetchColumn();
+$q("UPDATE commissions SET status='approved', payout_id=? WHERE id=?", [$p2, $c4]);
+$adm->post('/admin/affiliates', ['action' => 'reject_com', 'id' => (string) $c4, 'reason' => 'late refund'], '/admin/affiliates');
+t('commission inside a payout request cannot be rejected', $q('SELECT status FROM commissions WHERE id=?', [$c4])->fetchColumn() === 'approved');
+$q("UPDATE commissions SET status='rejected' WHERE id=?", [$c4]);
+$adm->post('/admin/affiliates', ['action' => 'pay', 'id' => (string) $p2], '/admin/affiliates');
+t('paying a payout never marks a rejected commission as paid', $q('SELECT status FROM commissions WHERE id=?', [$c4])->fetchColumn() === 'rejected');
+$adm->post('/admin/settings', ['gtm_id' => 'GTM-OK1234', 'wa_url' => 'http://evil.com'], '/admin/settings');
+t('settings with one invalid field save nothing', $q("SELECT svalue FROM settings WHERE skey='gtm_id'")->fetchColumn() !== 'GTM-OK1234');
+
 // ---- Commission calculator (unit)
 require $root . '/app/bootstrap.php'; \App\Core\Env::set('DB_DRIVER', 'sqlite'); \App\Core\Env::set('DB_SQLITE_PATH', $db); \App\Core\DB::reset();
 $setv = fn($k, $v) => \App\Core\Guard::saveSetting($k, $v);

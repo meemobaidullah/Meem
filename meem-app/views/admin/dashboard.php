@@ -1,0 +1,1 @@
+<h1>Dashboard</h1><div class="grid"><div class="stat">Leads<b><?= $leads ?></b></div><div class="stat">New leads<b><?= $new ?></b></div><div class="stat">KB entries<b><?= $kb ?></b></div><div class="stat">Affiliate applications pending<b><?= $affPending ?></b></div><div class="stat">Affiliate program<b style="font-size:18px"><?= \App\Core\Http::e($status) ?></b></div></div>

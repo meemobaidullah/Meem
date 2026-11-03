@@ -1,0 +1,1 @@
+<?php use App\Core\Http; ?><h1>Audit log</h1><table><tr><th>When (UTC)</th><th>Who</th><th>Action</th><th>Detail</th></tr><?php foreach ($rows as $r): ?><tr><td><?= Http::e($r['created_at']) ?></td><td><?= Http::e($r['actor'] ?? '') ?></td><td><?= Http::e($r['action']) ?></td><td><?= Http::e($r['detail'] ?? '') ?></td></tr><?php endforeach; ?></table>

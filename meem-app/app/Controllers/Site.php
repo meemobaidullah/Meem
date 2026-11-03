@@ -15,7 +15,7 @@ final class Site
     public function contactForm(): void
     {
         $t = (string) time();
-        echo Http::view('public/contact', ['title' => 'Contact', 'pageName' => 'Contact', 'errors' => [], 'old' => [], 'tok' => $t . '.' . hash_hmac('sha256', $t, Env::get('APP_KEY', 'change-me')), 'markets' => self::MARKETS, 'wa' => Guard::setting('wa_url')], 'public/layout');
+        echo Http::view('public/contact', ['title' => 'Contact', 'pageName' => 'Contact', 'errors' => [], 'old' => [], 'tok' => $t . '.' . hash_hmac('sha256', $t, Env::appKey()), 'markets' => self::MARKETS, 'wa' => Guard::setting('wa_url')], 'public/layout');
     }
 
     public function contactSubmit(): void
@@ -23,7 +23,7 @@ final class Site
         Http::requireCsrf();
         // Spam traps: hidden field must be empty and the form must have been open for at least 3 seconds.
         [$ts, $sig] = array_pad(explode('.', Http::post('_t'), 2), 2, '');
-        $validTok = ctype_digit($ts) && hash_equals(hash_hmac('sha256', $ts, Env::get('APP_KEY', 'change-me')), $sig);
+        $validTok = ctype_digit($ts) && hash_equals(hash_hmac('sha256', $ts, Env::appKey()), $sig);
         if (Http::post('website') !== '' || !$validTok || time() - (int) $ts < 3 || time() - (int) $ts > 7200) {
             Guard::audit('spam_blocked', 'contact'); Http::abort(400, 'Could not send the form. Please reload the page and try again.');
         }
@@ -40,7 +40,7 @@ final class Site
         if ($errors) {
             http_response_code(422);
             $t = (string) time();
-            echo Http::view('public/contact', ['title' => 'Contact', 'pageName' => 'Contact', 'errors' => $errors, 'old' => $old + ['markets' => $mk], 'tok' => $t . '.' . hash_hmac('sha256', $t, Env::get('APP_KEY', 'change-me')), 'markets' => self::MARKETS, 'wa' => Guard::setting('wa_url')], 'public/layout');
+            echo Http::view('public/contact', ['title' => 'Contact', 'pageName' => 'Contact', 'errors' => $errors, 'old' => $old + ['markets' => $mk], 'tok' => $t . '.' . hash_hmac('sha256', $t, Env::appKey()), 'markets' => self::MARKETS, 'wa' => Guard::setting('wa_url')], 'public/layout');
             return;
         }
         $ref = null;

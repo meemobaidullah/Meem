@@ -35,15 +35,19 @@ final class Affiliates
     }
     public static function newCode(): string { return strtolower(substr(bin2hex(random_bytes(6)), 0, 8)); }
     /** Called when a lead is marked Converted with a deal amount. */
+    public static function hasCommissionForLead(int $leadId): bool
+    {
+        return DB::one('SELECT c.id FROM commissions c JOIN referrals r ON r.id = c.referral_id WHERE r.lead_id = ?', [$leadId]) !== null;
+    }
+    /** Returns null on success, otherwise the reason no commission was created. */
     public static function createCommissionForLead(array $lead): ?string
     {
-        if (!self::isLive() || empty($lead['ref_code']) || empty($lead['deal_amount_cents'])) return null;
+        if (empty($lead['ref_code'])) return 'Lead has no referral code.';
+        if (empty($lead['deal_amount_cents'])) return 'Enter the deal amount to create the commission.';
+        if (!self::isLive()) return 'The affiliate program is not live.';
         $aff = DB::one("SELECT * FROM affiliates WHERE code = ? AND status = 'approved'", [$lead['ref_code']]);
         if (!$aff) return 'Referral code is not an approved affiliate.';
-        if (DB::one('SELECT id FROM referrals WHERE lead_id = ?', [$lead['id']])) {
-            $ref = DB::one('SELECT id FROM referrals WHERE lead_id = ?', [$lead['id']]);
-            if (DB::one('SELECT id FROM commissions WHERE referral_id = ?', [$ref['id']])) return 'Commission already exists for this lead.';
-        }
+        if (self::hasCommissionForLead((int) $lead['id'])) return 'Commission already exists for this lead.';
         $amt = self::calculate((int) $lead['deal_amount_cents']);
         if ($amt === null) return 'Commission rules are not configured.';
         $ref = DB::one('SELECT id FROM referrals WHERE lead_id = ?', [$lead['id']]);

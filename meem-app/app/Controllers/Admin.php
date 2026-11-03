@@ -54,11 +54,13 @@ final class Admin
         DB::run('UPDATE leads SET status = ?, deal_amount_cents = COALESCE(?, deal_amount_cents), updated_at = ? WHERE id = ?', [$st, $cents, DB::now(), $id]);
         if (Http::post('note') !== '') DB::run('INSERT INTO lead_notes (lead_id,user_id,note,created_at) VALUES (?,?,?,?)', [$id, $u['id'], mb_substr(Http::post('note'), 0, 2000), DB::now()]);
         Guard::audit('lead_updated', "lead #$id -> $st", $u);
-        if ($st === 'Converted' && $lead['status'] !== 'Converted' && Auth::can($u, 'affiliates.manage')) {
-            $fresh = DB::one('SELECT * FROM leads WHERE id = ?', [$id]);
-            $msg = Affiliates::createCommissionForLead($fresh);
-            if ($msg) Http::flash('err', 'No commission created: ' . $msg);
-            elseif ($fresh['ref_code']) Http::flash('ok', 'Pending commission created for the referring affiliate.');
+        // Retry on every save of a Converted, referred lead until a commission exists, so an editor's
+        // conversion or a missing deal amount can be completed later instead of being lost.
+        $fresh = DB::one('SELECT * FROM leads WHERE id = ?', [$id]);
+        if ($fresh['status'] === 'Converted' && !empty($fresh['ref_code']) && !Affiliates::hasCommissionForLead($id)) {
+            if (!Auth::can($u, 'affiliates.manage')) Http::flash('err', 'This lead was referred by an affiliate. An admin must save it to create the commission.');
+            elseif ($msg = Affiliates::createCommissionForLead($fresh)) Http::flash('err', 'No commission created: ' . $msg);
+            else Http::flash('ok', 'Pending commission created for the referring affiliate.');
         }
         Http::flash('ok', 'Lead updated.'); Http::redirect("/admin/leads/$id");
     }
@@ -97,15 +99,15 @@ final class Admin
         $errors = [];
         foreach (self::FIELDS as $k => $re) {
             $v = Http::post($k);
-            if ($v !== '' && (($k === 'contact_email' && !Guard::validEmail($v)) || ($re && !preg_match($re, $v)))) { $errors[] = "Invalid value for $k"; continue; }
-            Guard::saveSetting($k, $v);
+            if ($v !== '' && (($k === 'contact_email' && !Guard::validEmail($v)) || ($re && !preg_match($re, $v)))) $errors[] = "Invalid value for $k";
         }
         $type = Http::post('aff.type');
         if ($type !== '' && !in_array($type, ['percent', 'fixed'], true)) $errors[] = 'Commission type must be percent or fixed';
         foreach (['aff.value', 'aff.min_payout'] as $k) if (Http::post($k) !== '' && (!is_numeric(Http::post($k)) || (float) Http::post($k) < 0)) $errors[] = "$k must be a positive number";
         if ($type === 'percent' && Http::post('aff.value') !== '' && (float) Http::post('aff.value') > 100) $errors[] = 'Percent cannot exceed 100';
         foreach (['aff.cookie_days', 'aff.approval_days'] as $k) if (Http::post($k) !== '' && !ctype_digit(Http::post($k))) $errors[] = "$k must be a whole number of days";
-        if ($errors) { Http::flash('err', implode('; ', $errors)); Http::redirect('/admin/settings'); }
+        if ($errors) { Http::flash('err', implode('; ', $errors) . '. Nothing was saved.'); Http::redirect('/admin/settings'); }
+        foreach (array_keys(self::FIELDS) as $k) Guard::saveSetting($k, Http::post($k));
         foreach (Affiliates::KEYS as $k) { if ($k === 'aff.status') continue; Guard::saveSetting($k, mb_substr(Http::post($k), 0, 2000)); }
         $want = Http::post('aff.status');
         if ($want === 'live') {
@@ -156,10 +158,19 @@ final class Admin
                 $days = (int) Guard::setting('aff.approval_days', '0');
                 if ($c && $c['status'] === 'pending' && strtotime($c['created_at'] . ' UTC') + $days * 86400 > time()) { Http::flash('err', "Approval period ($days days) has not passed yet."); Http::redirect('/admin/affiliates'); }
                 DB::run("UPDATE commissions SET status='approved', decided_at=? WHERE id=? AND status='pending'", [DB::now(), $id]); break;
-            case 'reject_com': DB::run("UPDATE commissions SET status='rejected', reason=?, decided_at=? WHERE id=? AND status IN ('pending','approved')", [mb_substr(Http::post('reason', 'Rejected by admin'), 0, 250), DB::now(), $id]); break;
+            case 'reject_com':
+                // A commission already inside a payout request must not be rejected, or it would still be paid with that payout.
+                $n = DB::run("UPDATE commissions SET status='rejected', reason=?, decided_at=? WHERE id=? AND status IN ('pending','approved') AND payout_id IS NULL", [mb_substr(Http::post('reason', 'Rejected by admin'), 0, 250), DB::now(), $id]);
+                if ($n === 0) { Http::flash('err', 'This commission cannot be rejected: it is already rejected, paid, or part of a payout request.'); Http::redirect('/admin/affiliates'); }
+                break;
             case 'pay':
-                DB::run("UPDATE payouts SET status='paid', paid_at=? WHERE id=? AND status='requested'", [DB::now(), $id]);
-                DB::run("UPDATE commissions SET status='paid' WHERE payout_id=?", [$id]); break;
+                $paid = DB::tx(function () use ($id): bool {
+                    if (DB::run("UPDATE payouts SET status='paid', paid_at=? WHERE id=? AND status='requested'", [DB::now(), $id]) !== 1) return false;
+                    DB::run("UPDATE commissions SET status='paid' WHERE payout_id=? AND status='approved'", [$id]);
+                    return true;
+                });
+                if (!$paid) { Http::flash('err', 'Payout is not in requested state.'); Http::redirect('/admin/affiliates'); }
+                break;
             default: Http::abort(422, 'Unknown action.');
         }
         Guard::audit('affiliate_action', "$act #$id", $u); Http::redirect('/admin/affiliates');
